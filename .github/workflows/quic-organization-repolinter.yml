@@ -1,28 +1,16 @@
-name: QuIC Organization Repolinter
+# release.yml - Automatic creation of sha256 for release tarball
 
+name: goprox release action
+run-name: ${{ github.actor }} is publishing release ${{ github.ref_name }}
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
+  release:
+    types: [published]
 jobs:
-  repolinter:
+  sha256:
+    name: sha256
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v2
-      - name: Verify repolinter config file is present
-        id: check_files
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "repolint.json"
-      - name: Run Repolinter with local repolint.json
-        if: steps.check_files.outputs.files_exists == 'true'
-        uses: newrelic/repolinter-action@v1
-      - name: Run Repolinter with default ruleset
-        if: steps.check_files.outputs.files_exists == 'false'
-        uses: newrelic/repolinter-action@v1
-        with:
-          config_url: "https://raw.githubusercontent.com/quic/.github/main/repolint.json"
-
+      - name: Tarball url
+        run: echo "${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+      - name: Create tarball sha256 
+        run: curl -sL "${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz" | shasum -a 256 | cut -d " " -f 1
