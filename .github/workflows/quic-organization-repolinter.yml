@@ -1,16 +1,65 @@
-# release.yml - Automatic creation of sha256 for release tarball
+name: Update PKG_MIRROR_HASH and PKG_SOURCE_VERSION
 
-name: goprox release action
-run-name: ${{ github.actor }} is publishing release ${{ github.ref_name }}
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main  # Trigger the action when pushing to the main branch
+
 jobs:
-  sha256:
-    name: sha256
+  update-makefile:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Tarball url
-        run: echo "${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
-      - name: Create tarball sha256 
-        run: curl -sL "${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz" | shasum -a 256 | cut -d " " -f 1
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up Git
+      run: |
+        git config --global user.name 'github-actions'
+        git config --global user.email 'github-actions@github.com'
+
+    - name: Download source code tarball
+      run: |
+        # Define the repository and branch/commit
+        REPO_URL="https://github.com/kmoz000/upstream-wifi-fw.git"
+        COMMIT_HASH=$(git ls-remote $REPO_URL refs/heads/main | awk '{print $1}')
+        echo "Latest commit: $COMMIT_HASH"
+        
+        # Download the tarball from the repository at the latest commit
+        wget "$REPO_URL/archive/$COMMIT_HASH.tar.gz" -O source.tar.gz
+
+    - name: Generate PKG_MIRROR_HASH
+      id: hash
+      run: |
+        # Generate SHA256 hash of the downloaded tarball
+        PKG_MIRROR_HASH=$(sha256sum source.tar.gz | awk '{print $1}')
+        echo "PKG_MIRROR_HASH=$PKG_MIRROR_HASH" >> $GITHUB_ENV
+        echo "Generated PKG_MIRROR_HASH: $PKG_MIRROR_HASH"
+
+    - name: Update Makefile
+      run: |
+        # Update the PKG_SOURCE_VERSION and PKG_MIRROR_HASH in the Makefile
+        sed -i "s/^PKG_SOURCE_VERSION:=.*$/PKG_SOURCE_VERSION:=$COMMIT_HASH/" Makefile
+        sed -i "s/^PKG_MIRROR_HASH:=.*$/PKG_MIRROR_HASH:=${{ env.PKG_MIRROR_HASH }}/" Makefile
+
+    - name: Commit and push updated Makefile
+      run: |
+        # Commit the changes and push them back to the repository
+        git add Makefile
+        git commit -m "Update PKG_SOURCE_VERSION to $COMMIT_HASH and PKG_MIRROR_HASH"
+        git push origin HEAD
+
+    - name: Get current date
+      id: date
+      run: echo "TAG_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+    - name: Create a release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.TAG_DATE }}  # Use the current date as tag
+        release_name: "Release ${{ env.TAG_DATE }}"
+        body: |
+          - PKG_SOURCE_VERSION: $COMMIT_HASH
+          - PKG_MIRROR_HASH: ${{ env.PKG_MIRROR_HASH }}
